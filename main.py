@@ -117,5 +117,9 @@ def handle_quiz_request():
 
     return jsonify({"status": "Quiz solving initiated"}), 200
 
+@app.route("/ping", methods=["GET"])
+def ping():
+    return "pong", 200
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)
