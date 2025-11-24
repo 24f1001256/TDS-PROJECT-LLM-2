@@ -11,4 +11,4 @@ jobs:
     steps:
       - name: Ping the Render service
         # Replace the URL with your actual Render service URL
-        run: curl -s https://llm-quiz-solver.onrender.com/ping
+        run: curl -s https://llm-quiz-solver-xkw1.onrender.com/ping
