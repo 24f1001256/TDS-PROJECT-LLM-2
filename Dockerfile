@@ -8,12 +8,13 @@ ENV PYTHONUNBUFFERED 1
 # Set the working directory inside the container
 WORKDIR /app
 
-# Install system dependencies required for Google Chrome and utilities
+# Install system dependencies required for Google Chrome, utilities, and jq for parsing JSON
 RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     gnupg \
     unzip \
     ca-certificates \
+    jq \
     # Cleanup apt cache to reduce image size
     && rm -rf /var/lib/apt/lists/*
 
@@ -25,13 +26,15 @@ RUN wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | apt-key add
 RUN apt-get update && apt-get install -y google-chrome-stable --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
-# Install the matching version of ChromeDriver
-# This command automatically finds the version of Chrome installed and downloads the corresponding ChromeDriver
-RUN CHROME_VERSION=$(google-chrome --version | cut -d " " -f3) \
-    && CD_VERSION=$(wget -qO- https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json | grep -A 20 "$CHROME_VERSION" | grep 'chromedriver' | grep 'linux64' | awk -F '"' '{print $4}') \
-    && wget -q --continue -P /tmp $CD_VERSION \
+# Install the latest stable version of ChromeDriver using the official JSON endpoints
+RUN CD_URL=$(wget -qO- https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json | jq -r '.channels.Stable.downloads.chromedriver[] | select(.platform=="linux64") | .url') \
+    && wget -q --continue -P /tmp $CD_URL \
     && unzip /tmp/chromedriver-linux64.zip -d /usr/local/bin \
-    && rm /tmp/chromedriver-linux64.zip
+    # The zip archive contains a directory, so move the binary to the final location
+    && mv /usr/local/bin/chromedriver-linux64/chromedriver /usr/local/bin/chromedriver \
+    # Clean up the downloaded zip and extracted directory
+    && rm /tmp/chromedriver-linux64.zip \
+    && rm -rf /usr/local/bin/chromedriver-linux64
 
 # Copy the requirements.txt file and install Python dependencies
 COPY requirements.txt .
