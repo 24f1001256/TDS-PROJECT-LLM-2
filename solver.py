@@ -26,7 +26,7 @@ def get_answer_from_llm(quiz_content):
         system_prompt = "You are an expert quiz solver. Your task is to analyze the given text and provide only the final answer to the question asked. Do not include any explanations, greetings, or additional text. For example, if the question is 'What is the sum of the value column?', and the answer is 12345, your response should be just '12345'."
 
         response = openai.chat.completions.create(
-            model="gpt-4",  # A powerful model suitable for this task
+            model="gpt-3.5-turbo",  # A powerful and widely available model
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": quiz_content}
