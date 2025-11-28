@@ -7,3 +7,5 @@ openai
 pytest
 requests
 gunicorn
+openai-whisper
+aipipe

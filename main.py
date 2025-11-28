@@ -1,6 +1,14 @@
 from flask import Flask, request, jsonify
 import os
-from solver import solve_quiz, submit_answer, get_answer_from_llm, download_file, extract_text_from_pdf
+from solver import (
+    solve_quiz,
+    submit_answer,
+    get_answer_from_llm,
+    download_file,
+    extract_text_from_pdf,
+    process_csv_file,
+    transcribe_audio_file
+)
 import threading
 import re
 from urllib.parse import urljoin
@@ -17,6 +25,11 @@ def solve_and_submit(email, secret, quiz_url):
     and handles the quiz chain.
     """
     print(f"--- Solving quiz: {quiz_url} ---")
+
+    # Add the email to the quiz URL if it's a demo2 link
+    if "demo2" in quiz_url and "email=" not in quiz_url:
+        quiz_url += f"?email={email}"
+
     raw_quiz_content, soup = solve_quiz(quiz_url)
 
     if not raw_quiz_content:
@@ -33,47 +46,51 @@ def solve_and_submit(email, secret, quiz_url):
     if download_link_match:
         download_url = download_link_match.group(1)
 
-        # Make sure the URL is absolute
         if not download_url.startswith('http'):
             download_url = urljoin(quiz_url, download_url)
 
         print(f"Found download link: {download_url}")
 
-        # Download the file
         downloaded_file_path = download_file(download_url)
 
         if downloaded_file_path:
-            # If it's a PDF, extract the text
-            if downloaded_file_path.endswith('.pdf'):
-                pdf_text = extract_text_from_pdf(downloaded_file_path)
-                if pdf_text:
-                    # Add the PDF text to the LLM context
-                    llm_context += "\n\n--- Content from downloaded PDF ---\n" + pdf_text
-            else:
-                print(f"Downloaded file is not a PDF: {downloaded_file_path}")
+            file_extension = os.path.splitext(downloaded_file_path)[1].lower()
+            file_content = ""
 
-    # Use the LLM to get the answer from the (potentially augmented) context
+            if file_extension == '.pdf':
+                file_content = extract_text_from_pdf(downloaded_file_path)
+            elif file_extension == '.csv':
+                file_content = process_csv_file(downloaded_file_path)
+            elif file_extension in ['.wav', '.mp3', '.ogg']:
+                file_content = transcribe_audio_file(downloaded_file_path)
+            else:
+                print(f"Unsupported file type: {file_extension}")
+
+            if file_content:
+                llm_context += f"\n\n--- Content from downloaded {file_extension} file ---\n" + file_content
+
     answer = get_answer_from_llm(llm_context)
 
     if answer is None:
         print("Could not get an answer from the LLM.")
         return
 
-    # Try to find the submit URL using a more robust method first
     submit_url = None
     submit_pre = soup.find('pre')
     if submit_pre:
-        # The sample quiz has the submit URL inside a <pre> tag.
-        # This is a bit specific, but it's a good starting point.
         submit_url_match = re.search(r'Post your answer to (https?://[^\s/$.?#].[^\s]*)', submit_pre.get_text())
         if submit_url_match:
             submit_url = submit_url_match.group(1)
 
-    # If the BeautifulSoup method fails, fall back to the regex on the raw content
     if not submit_url:
         submit_url_match = re.search(r'(?:Post your answer to|submit to|submit at)\s+(https?://[^\s/$.?#].[^\s]*)', raw_quiz_content, re.IGNORECASE)
         if submit_url_match:
             submit_url = submit_url_match.group(1)
+
+    # A special case for demo2, where the submit URL is provided in the instructions
+    if "demo2" in quiz_url and "tackle /demo2-checksum" in raw_quiz_content:
+        submit_url = urljoin(quiz_url, "/submit")
+
 
     if not submit_url:
         print("Could not find submit URL in the quiz content.")

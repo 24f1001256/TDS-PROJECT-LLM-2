@@ -2,13 +2,12 @@ services:
   - type: web
     name: llm-quiz-solver
     env: docker
-    # The health check path that will be added to the Flask app later
     healthCheckPath: /ping
-    # Let Render automatically assign a port
     plan: free
-    # Environment variables that need to be set in the Render dashboard
     envVars:
       - key: SECRET_STRING
         sync: false
       - key: OPENAI_API_KEY
+        sync: false
+      - key: AIPIPE_API_KEY
         sync: false

@@ -8,13 +8,14 @@ ENV PYTHONUNBUFFERED 1
 # Set the working directory inside the container
 WORKDIR /app
 
-# Install system dependencies required for Google Chrome, utilities, and jq for parsing JSON
+# Install system dependencies required for Google Chrome, utilities, jq for parsing JSON, and ffmpeg for audio processing
 RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     gnupg \
     unzip \
     ca-certificates \
     jq \
+    ffmpeg \
     # Cleanup apt cache to reduce image size
     && rm -rf /var/lib/apt/lists/*
 
@@ -48,4 +49,4 @@ EXPOSE 8080
 
 # Set the command to run the application using Gunicorn
 # This is a production-ready WSGI server
-CMD ["gunicorn", "--bind", "0.0.0.0:8080", "main:app"]
+CMD ["gunicorn", "--bind", "0.-", "main:app"]
