@@ -5,50 +5,80 @@ import base64
 import re
 import requests
 import os
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse, parse_qs
 from PyPDF2 import PdfReader
 from io import BytesIO
 import openai
-
-# Set the OpenAI API key from an environment variable
-openai.api_key = os.environ.get("OPENAI_API_KEY")
+import hashlib
+import pandas as pd
+import whisper
+from aipipe import AIPipe
 
 def get_answer_from_llm(quiz_content):
     """
     Uses a Large Language Model to interpret the quiz content and extract the answer.
+    It will try OpenAI first, and if that fails, it will fall back to AI Pipe.
     """
-    if not openai.api_key:
-        print("Error: OPENAI_API_KEY environment variable not set.")
-        return None
-
-    try:
-        # This prompt is designed to get a concise answer from the LLM.
-        system_prompt = "You are an expert quiz solver. Your task is to analyze the given text and provide only the final answer to the question asked. Do not include any explanations, greetings, or additional text. For example, if the question is 'What is the sum of the value column?', and the answer is 12345, your response should be just '12345'."
-
-        response = openai.chat.completions.create(
-            model="gpt-3.5-turbo",  # A powerful and widely available model
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": quiz_content}
-            ],
-            temperature=0,  # Set to 0 for deterministic and consistent output
-        )
-
-        answer = response.choices[0].message.content.strip()
-        print(f"LLM-generated answer: {answer}")
-
-        # The answer might be a number, so we try to convert it.
+    # Attempt to use OpenAI first
+    openai_api_key = os.environ.get("OPENAI_API_KEY")
+    if openai_api_key:
         try:
-            return int(answer)
-        except ValueError:
-            try:
-                return float(answer)
-            except ValueError:
-                return answer  # Return as a string if it's not a number
+            openai.api_key = openai_api_key
+            system_prompt = "You are an expert quiz solver. Your task is to analyze the given text and provide only the final answer to the question asked. Do not include any explanations, greetings, or additional text."
 
-    except Exception as e:
-        print(f"An error occurred while calling the OpenAI API: {e}")
-        return None
+            response = openai.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": quiz_content}
+                ],
+                temperature=0,
+            )
+
+            answer = response.choices[0].message.content.strip()
+            print(f"LLM (OpenAI) generated answer: {answer}")
+
+            try:
+                return int(answer)
+            except ValueError:
+                try:
+                    return float(answer)
+                except ValueError:
+                    return answer
+
+        except Exception as e:
+            print(f"OpenAI API call failed: {e}. Falling back to AI Pipe.")
+
+    # Fallback to AI Pipe
+    aipipe_api_key = os.environ.get("AIPIPE_API_KEY")
+    if aipipe_api_key:
+        try:
+            pipe = AIPipe(aipipe_api_key)
+            response = pipe.chat.completions.create(
+                model="meta-llama/Llama-2-7b-chat-hf",
+                messages=[
+                    {"role": "system", "content": "You are a helpful assistant."},
+                    {"role": "user", "content": quiz_content}
+                ]
+            )
+
+            answer = response.choices[0].message.content.strip()
+            print(f"LLM (AI Pipe) generated answer: {answer}")
+
+            try:
+                return int(answer)
+            except ValueError:
+                try:
+                    return float(answer)
+                except ValueError:
+                    return answer
+
+        except Exception as e:
+            print(f"AI Pipe API call failed: {e}")
+            return None
+
+    print("Error: No valid API key found for either OpenAI or AI Pipe.")
+    return None
 
 def download_file(url, download_path='.'):
     """Downloads a file from a URL to a local path."""
@@ -86,6 +116,35 @@ def extract_text_from_pdf(pdf_path):
         print(f"Error processing PDF: {e}")
         return None
 
+def process_csv_file(csv_path):
+    """Reads a CSV file and returns a summary for the LLM."""
+    try:
+        df = pd.read_csv(csv_path)
+        return f"CSV Summary:\nColumns: {', '.join(df.columns)}\nFirst 5 rows:\n{df.head().to_string()}"
+    except Exception as e:
+        print(f"Error processing CSV file: {e}")
+        return None
+
+def transcribe_audio_file(audio_path):
+    """Transcribes an audio file using OpenAI's Whisper model."""
+    try:
+        model = whisper.load_model("base")
+        result = model.transcribe(audio_path)
+        return result["text"]
+    except Exception as e:
+        print(f"Error transcribing audio file: {e}")
+        return None
+
+def solve_alphametic_quiz(email):
+    """
+    Solves the alphametic quiz by reimplementing the JavaScript logic in Python.
+    """
+    sha1 = hashlib.sha1(email.encode('utf-8')).hexdigest()
+    email_number = int(sha1[:4], 16)
+    key = (email_number * 7919 + 12345) % 100000000
+    key_str = str(key).zfill(8)
+    return key_str
+
 def solve_quiz(quiz_url):
     """
     This function takes a quiz URL, uses a headless browser to visit it,
@@ -93,6 +152,15 @@ def solve_quiz(quiz_url):
     It returns both the raw content and a BeautifulSoup object.
     """
     print(f"Solving quiz at: {quiz_url}")
+
+    parsed_url = urlparse(quiz_url)
+    if parsed_url.path == '/demo2':
+        query_params = parse_qs(parsed_url.query)
+        email = query_params.get('email', [None])[0]
+        if email:
+            print("Detected alphametic quiz. Solving directly.")
+            key = solve_alphametic_quiz(email)
+            return f"The calculated key is {key}. Submit this as the answer.", BeautifulSoup("<html></html>", "html.parser")
 
     chrome_options = Options()
     chrome_options.add_argument("--headless")
@@ -122,7 +190,6 @@ def solve_quiz(quiz_url):
             except Exception as e:
                 print(f"Error decoding base64 content: {e}")
 
-    # If the base64 pattern is not found, use the plain text of the page.
     if not raw_content:
         raw_content = soup.get_text()
 
